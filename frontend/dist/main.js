@@ -7,12 +7,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-import { ApiError, addToWatchlist, createAlert, deleteAlert, getAlerts, getAssets, getPrices, getWatchlist, isLoggedIn, login, logout, removeFromWatchlist, signup, } from "./api.js";
+import { ApiError, addToWatchlist, createAlert, deleteAlert, getAlerts, getAssets, getAssetSummary, getPrices, getWatchlist, enterGuestMode, isGuest, isLoggedIn, login, logout, removeFromWatchlist, signup, } from "./api.js";
 import { startBackdrop, stopBackdrop } from "./backdrop.js";
 let authMode = "login";
 let priceChart = null;
 let chartedSymbol = null;
 let assets = [];
+let summary = [];
 function el(id) {
     const node = document.getElementById(id);
     if (!node)
@@ -26,6 +27,16 @@ const money = new Intl.NumberFormat("en-US", {
 });
 function formatPrice(value) {
     return typeof value === "number" ? money.format(value) : "—";
+}
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+function formatPct(value) {
+    if (typeof value !== "number")
+        return "—";
+    const sign = value >= 0 ? "+" : "−";
+    return `${sign}${Math.abs(value).toFixed(2)}%`;
+}
+function formatVolume(value) {
+    return typeof value === "number" ? `$${compact.format(value)}` : "—";
 }
 /* ---------- Toast ---------- */
 let toastTimer;
@@ -71,6 +82,15 @@ function showAuth() {
     el("auth-view").hidden = false;
     el("app-view").hidden = true;
     startBackdrop(el("auth-backdrop"));
+}
+function syncNav() {
+    const guestNow = isGuest();
+    el("logout-btn").hidden = guestNow;
+    el("nav-signup").hidden = !guestNow;
+}
+function promptSignup() {
+    showAuth();
+    setAuthMode("signup");
 }
 /** Add forms are only usable when signed in. The gate normally covers this,
     but the panels stay honest if they ever render unauthenticated. */
@@ -383,6 +403,117 @@ function handleAlertSubmit(event) {
         }
     });
 }
+/* ---------- Overview: stat cards + top assets ---------- */
+function makeStatCard(label, value, sub, delta) {
+    const card = document.createElement("article");
+    card.className = "stat-card";
+    const labelEl = document.createElement("span");
+    labelEl.className = "stat-card__label";
+    labelEl.textContent = label;
+    const valueEl = document.createElement("span");
+    valueEl.className = "stat-card__value";
+    valueEl.textContent = value;
+    const subEl = document.createElement("span");
+    subEl.className = "stat-card__sub";
+    subEl.textContent = sub;
+    card.append(labelEl, valueEl, subEl);
+    if (delta) {
+        const deltaEl = document.createElement("span");
+        deltaEl.className = `stat-card__delta ${delta.tone}`;
+        deltaEl.textContent = delta.text;
+        card.append(deltaEl);
+    }
+    return card;
+}
+function deltaFor(item) {
+    var _a;
+    const up = ((_a = item.change_pct_24h) !== null && _a !== void 0 ? _a : 0) >= 0;
+    return { text: formatPct(item.change_pct_24h), tone: up ? "up" : "down" };
+}
+function renderStatCards() {
+    const row = el("stat-row");
+    row.innerHTML = "";
+    const withChange = summary.filter((item) => typeof item.change_pct_24h === "number");
+    const withVolume = summary.filter((item) => typeof item.volume_24h === "number");
+    const gainer = withChange.reduce((best, item) => (!best || item.change_pct_24h > best.change_pct_24h ? item : best), null);
+    const loser = withChange.reduce((worst, item) => (!worst || item.change_pct_24h < worst.change_pct_24h ? item : worst), null);
+    const active = withVolume.reduce((top, item) => (!top || item.volume_24h > top.volume_24h ? item : top), null);
+    row.append(gainer
+        ? makeStatCard("Top gainer · 24h", gainer.symbol, formatPrice(gainer.price_usd), deltaFor(gainer))
+        : makeStatCard("Top gainer · 24h", "—", "Not enough data", null), loser
+        ? makeStatCard("Top loser · 24h", loser.symbol, formatPrice(loser.price_usd), deltaFor(loser))
+        : makeStatCard("Top loser · 24h", "—", "Not enough data", null), active
+        ? makeStatCard("Most active", active.symbol, formatVolume(active.volume_24h), null)
+        : makeStatCard("Most active", "—", "Not enough data", null), makeStatCard("Assets tracked", String(summary.length), "in the market", null));
+}
+function renderTopAssets() {
+    const container = el("top-assets");
+    container.innerHTML = "";
+    if (summary.length === 0) {
+        container.innerHTML = `<div class="empty"><strong>No assets</strong>Nothing to show yet.</div>`;
+        return;
+    }
+    // Biggest 24h movers first; assets without a change sink to the bottom.
+    const ordered = [...summary].sort((a, b) => { var _a, _b; return ((_a = b.change_pct_24h) !== null && _a !== void 0 ? _a : -Infinity) - ((_b = a.change_pct_24h) !== null && _b !== void 0 ? _b : -Infinity); });
+    for (const item of ordered) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "asset-row asset-row--quote";
+        row.setAttribute("aria-current", String(item.symbol === chartedSymbol));
+        const id = document.createElement("span");
+        id.className = "asset-row__id";
+        const sym = document.createElement("span");
+        sym.className = "asset-row__sym";
+        sym.textContent = item.symbol;
+        const name = document.createElement("span");
+        name.className = "asset-row__name";
+        name.textContent = item.name;
+        id.append(sym, name);
+        const price = document.createElement("span");
+        price.className = "asset-row__price";
+        price.textContent = formatPrice(item.price_usd);
+        const delta = document.createElement("span");
+        const tone = typeof item.change_pct_24h === "number" ? (item.change_pct_24h >= 0 ? "up" : "down") : "";
+        delta.className = `asset-row__delta ${tone}`;
+        delta.textContent = formatPct(item.change_pct_24h);
+        row.append(id, price, delta);
+        row.addEventListener("click", () => void selectAsset(item.symbol));
+        container.append(row);
+    }
+}
+function renderOverview() {
+    renderStatCards();
+    renderTopAssets();
+}
+/* ---------- Guest locked panels ---------- */
+function lockedPanel(container, message, cta) {
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "locked";
+    const ghosts = document.createElement("div");
+    ghosts.className = "locked__ghosts";
+    ghosts.setAttribute("aria-hidden", "true");
+    ghosts.innerHTML = skeletons(3);
+    const overlay = document.createElement("div");
+    overlay.className = "locked__cta";
+    overlay.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>`;
+    const text = document.createElement("p");
+    text.textContent = message;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-primary";
+    button.textContent = cta;
+    button.addEventListener("click", promptSignup);
+    overlay.append(text, button);
+    wrap.append(ghosts, overlay);
+    container.append(wrap);
+}
+function renderGuestPanels() {
+    el("watchlist-count").textContent = "";
+    el("alerts-count").textContent = "";
+    lockedPanel(el("watchlist-cards"), "Create a free account to build your own watchlist.", "Sign up to build your watchlist");
+    lockedPanel(el("alerts-list"), "Create a free account to set price alerts.", "Sign up to set alerts");
+}
 /* ---------- Chart + quote ---------- */
 function updateQuote(symbol, points) {
     const asset = assets.find((candidate) => candidate.symbol === symbol);
@@ -550,10 +681,12 @@ function enterApp() {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
         showApp();
+        syncNav();
         syncFormVisibility();
         try {
-            assets = yield getAssets();
+            [assets, summary] = yield Promise.all([getAssets(), getAssetSummary()]);
             populateAssetSelectors();
+            renderOverview();
         }
         catch (error) {
             toast(messageFor(error), "error");
@@ -566,6 +699,27 @@ function enterApp() {
         ]);
     });
 }
+function enterGuest() {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        enterGuestMode();
+        showApp();
+        syncNav();
+        syncFormVisibility();
+        try {
+            [assets, summary] = yield Promise.all([getAssets(), getAssetSummary()]);
+            populateAssetSelectors();
+            renderOverview();
+        }
+        catch (error) {
+            toast(messageFor(error), "error");
+        }
+        renderGuestPanels();
+        const first = (_a = assets[0]) === null || _a === void 0 ? void 0 : _a.symbol;
+        if (first)
+            yield selectAsset(first);
+    });
+}
 function handleLogout() {
     logout();
     if (priceChart) {
@@ -574,6 +728,7 @@ function handleLogout() {
     }
     chartedSymbol = null;
     assets = [];
+    summary = [];
     showAuth();
     setAuthMode("login");
     el("auth-form").reset();
@@ -589,6 +744,8 @@ function init() {
     showAuth();
     el("auth-form").addEventListener("submit", (event) => void handleAuthSubmit(event));
     el("auth-switch-btn").addEventListener("click", () => setAuthMode(authMode === "login" ? "signup" : "login"));
+    el("guest-btn").addEventListener("click", () => void enterGuest());
+    el("nav-signup").addEventListener("click", promptSignup);
     el("theme-toggle").addEventListener("click", () => {
         applyTheme(currentTheme() === "dark" ? "light" : "dark");
     });
