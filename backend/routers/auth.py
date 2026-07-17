@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models import User
+from rate_limit import limiter
 from pydantic import BaseModel, EmailStr, field_validator
 import bcrypt
 from jose import jwt
@@ -64,7 +65,8 @@ def create_token(user_id: int):
 
 
 @router.post("/signup")
-def signup(req: SignupRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def signup(request: Request, req: SignupRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == req.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
@@ -76,7 +78,8 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email.lower()).first()
     if not user or not bcrypt.checkpw(req.password.encode(), user.password_hash.encode()):
         raise HTTPException(status_code=401, detail="Invalid credentials")

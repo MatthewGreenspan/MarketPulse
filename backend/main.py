@@ -1,13 +1,25 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles 
+from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from database import engine
 import models
+from rate_limit import limiter
 from routers import assets, watchlist, alerts, auth
 from services.price_fetcher import fetch_crypto_prices_job, fetch_stock_prices_job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
 app = FastAPI()
+
+# Rate limiting: the shared limiter enforces a 60/minute default on every route.
+# SlowAPIMiddleware applies that default app-wide; the exception handler turns a
+# breach into an HTTP 429 before the endpoint runs. Auth routes tighten this
+# further with their own @limiter.limit decorators.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 models.Base.metadata.create_all(bind=engine)
 

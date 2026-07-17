@@ -14,6 +14,7 @@ Built as a portfolio project by Matthew Greenspan (UF CS, Class of 2028).
 - **Guest mode** — "Continue as guest" opens the full dashboard on real data with no account; the watchlist and alerts panels show a locked preview that prompts sign-up
 - Per-user watchlists and price alerts (once signed in)
 - JWT-based authentication with bcrypt password hashing
+- Per-IP rate limiting on every endpoint (stricter on auth) to blunt brute-force and spam
 - Light and dark mode
 
 ---
@@ -28,6 +29,7 @@ Built as a portfolio project by Matthew Greenspan (UF CS, Class of 2028).
 - bcrypt — password hashing
 - python-jose — JWT token generation and verification
 - email-validator — email format validation on signup (via Pydantic `EmailStr`)
+- slowapi — per-IP rate limiting on the API
 
 **Frontend**
 - TypeScript — compiled to JavaScript via tsc
@@ -49,6 +51,7 @@ market-dashboard/
 │   ├── models.py            # SQLAlchemy models (Asset, PriceHistory, Watchlist, Alert, User)
 │   ├── database.py          # Database connection and SessionLocal
 │   ├── dependencies.py      # JWT auth dependency (get_current_user)
+│   ├── rate_limit.py        # Shared slowapi Limiter (per-IP request budgets)
 │   ├── seed.py              # Seeds the database with 10 assets
 │   ├── requirements.txt     # Python dependencies
 │   ├── .env                 # Environment variables (not in git)
@@ -106,6 +109,21 @@ The login/signup page gates the dashboard: nothing renders until a token exists.
 
 ---
 
+## Rate Limiting
+
+Every endpoint is rate limited per client IP using `slowapi`, so no single caller can spam the API. A shared `Limiter` lives in `rate_limit.py`; `main.py` registers it with the app via `SlowAPIMiddleware` and an exception handler that returns **HTTP 429 Too Many Requests** when a limit is exceeded.
+
+| Scope | Limit (per IP) | Why |
+|-------|----------------|-----|
+| Global default (all routes) | 60 / minute | Bounds how much load one client can generate |
+| `POST /auth/login`, `POST /auth/signup` | 5 / minute | Blunts password brute-forcing and spam account creation |
+
+Limits are plain strings (e.g. `"5/minute"`) — change them by editing the decorator in `routers/auth.py` or the `default_limits` in `rate_limit.py`. Covered by `tests/test_rate_limit.py`.
+
+> **Deployment note:** limits key off the socket peer IP. Behind a proxy (e.g. Railway), configure `X-Forwarded-For` handling first — otherwise every request looks like it comes from the proxy and all users share one bucket.
+
+---
+
 ## Running Locally
 
 **Backend:**
@@ -141,4 +159,4 @@ SECRET_KEY=your_secret_key_here
 
 ## Roadmap (v2)
 
-See `TODO.md` for the full list of planned improvements including UUIDs, rate limiting, CORS, email verification, password reset, prediction engine, and Railway deployment.
+See `TODO.md` for the full list of planned improvements including UUIDs, CORS, email verification, password reset, prediction engine, and Railway deployment.
