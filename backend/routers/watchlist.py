@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Asset, Watchlist, PriceHistory
+from models import Asset, Watchlist, PriceHistory, User
+from dependencies import get_current_user
 
 router = APIRouter()
 
-
 @router.get("/")
-def get_watchlist(db: Session = Depends(get_db)):
-    watchlist = db.query(Watchlist).all()
+def get_watchlist(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    watchlist = db.query(Watchlist).filter(Watchlist.user_id == current_user.id).all()
     
     result = []
     for item in watchlist:
@@ -30,33 +30,31 @@ def get_watchlist(db: Session = Depends(get_db)):
     
     return result
 
-
 @router.post("/")
-def add_to_watchlist(symbol: str, db: Session = Depends(get_db)):
+def add_to_watchlist(symbol: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     asset = db.query(Asset).filter(Asset.symbol == symbol.upper()).first()
     
     if not asset:
         return {"error": "Asset not found"}
     
-    existing = db.query(Watchlist).filter(Watchlist.asset_id == asset.id).first()
+    existing = db.query(Watchlist).filter(Watchlist.asset_id == asset.id, Watchlist.user_id == current_user.id).first()
     if existing:
         return {"error": "Asset already in watchlist"}
     
-    item = Watchlist(asset_id=asset.id)
+    item = Watchlist(asset_id=asset.id, user_id=current_user.id)
     db.add(item)
     db.commit()
     
     return {"message": f"{asset.symbol} added to watchlist"}
 
-
 @router.delete("/{symbol}")
-def remove_from_watchlist(symbol: str, db: Session = Depends(get_db)):
+def remove_from_watchlist(symbol: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     asset = db.query(Asset).filter(Asset.symbol == symbol.upper()).first()
     
     if not asset:
         return {"error": "Asset not found"}
     
-    item = db.query(Watchlist).filter(Watchlist.asset_id == asset.id).first()
+    item = db.query(Watchlist).filter(Watchlist.asset_id == asset.id, Watchlist.user_id == current_user.id).first()
     if not item:
         return {"error": "Asset not in watchlist"}
     

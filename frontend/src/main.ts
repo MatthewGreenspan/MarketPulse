@@ -1,4 +1,4 @@
-import { getWatchlist, addToWatchlist, removeFromWatchlist, getPrices, getAssets, getAlerts, createAlert, deleteAlert } from "./api.js";
+import { getWatchlist, addToWatchlist, removeFromWatchlist, getPrices, getAssets, getAlerts, createAlert, deleteAlert, login, signup, logout, isLoggedIn } from "./api.js";
 
 let priceChart: any = null;
 
@@ -6,6 +6,11 @@ async function renderWatchlist() {
     const watchlist = await getWatchlist();
     const container = document.getElementById("watchlist-cards")!;
     container.innerHTML = "";
+
+    if (!Array.isArray(watchlist)) {
+        container.innerHTML = "<p>Please log in to see your watchlist.</p>";
+        return;
+    }
 
     watchlist.forEach((item: any) => {
         const card = document.createElement("div");
@@ -25,6 +30,11 @@ async function renderAlerts() {
     const alerts = await getAlerts();
     const container = document.getElementById("alerts-list")!;
     container.innerHTML = "";
+
+    if (!Array.isArray(alerts)) {
+        container.innerHTML = "<p>Please log in to see your alerts.</p>";
+        return;
+    }
 
     alerts.forEach((alert: any) => {
         const div = document.createElement("div");
@@ -90,6 +100,65 @@ async function loadChart(symbol: string) {
     });
 }
 
+function updateNavAuth() {
+    const navActions = document.getElementById("nav-actions")!;
+    if (isLoggedIn()) {
+        navActions.innerHTML = `
+            <button class="theme-toggle" id="theme-toggle">☀️ Light Mode</button>
+            <button onclick="handleLogout()">Logout</button>
+        `;
+    } else {
+        navActions.innerHTML = `
+            <button class="theme-toggle" id="theme-toggle">☀️ Light Mode</button>
+            <button onclick="showAuth('login')">Login</button>
+            <button onclick="showAuth('signup')">Sign Up</button>
+        `;
+    }
+    document.getElementById("theme-toggle")!.addEventListener("click", () => {
+        const html = document.documentElement;
+        const isDark = html.getAttribute("data-theme") === "dark";
+        html.setAttribute("data-theme", isDark ? "light" : "dark");
+        document.getElementById("theme-toggle")!.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
+    });
+}
+
+(window as any).showAuth = (mode: string) => {
+    const modal = document.getElementById("auth-modal")!;
+    const title = document.getElementById("auth-title")!;
+    title.textContent = mode === "login" ? "Login" : "Sign Up";
+    modal.style.display = "flex";
+    (window as any).currentAuthMode = mode;
+};
+
+(window as any).closeAuth = () => {
+    document.getElementById("auth-modal")!.style.display = "none";
+};
+
+(window as any).submitAuth = async () => {
+    const email = (document.getElementById("auth-email") as HTMLInputElement).value;
+    const password = (document.getElementById("auth-password") as HTMLInputElement).value;
+    const mode = (window as any).currentAuthMode;
+
+    if (mode === "signup") {
+        const username = (document.getElementById("auth-username") as HTMLInputElement).value;
+        await signup(username, email, password);
+    } else {
+        await login(email, password);
+    }
+
+    (window as any).closeAuth();
+    updateNavAuth();
+    renderWatchlist();
+    renderAlerts();
+};
+
+(window as any).handleLogout = () => {
+    logout();
+    updateNavAuth();
+    renderWatchlist();
+    renderAlerts();
+};
+
 (window as any).addToWatchlist = async () => {
     const input = document.getElementById("symbol-input") as HTMLInputElement;
     await addToWatchlist(input.value.toUpperCase());
@@ -123,14 +192,8 @@ async function loadChart(symbol: string) {
 (window as any).loadChart = loadChart;
 
 document.addEventListener("DOMContentLoaded", () => {
+    updateNavAuth();
     populateAssetSelectors();
     renderWatchlist();
     renderAlerts();
-});
-
-document.getElementById("theme-toggle")!.addEventListener("click", () => {
-    const html = document.documentElement;
-    const isDark = html.getAttribute("data-theme") === "dark";
-    html.setAttribute("data-theme", isDark ? "light" : "dark");
-    document.getElementById("theme-toggle")!.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
 });
