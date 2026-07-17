@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles 
 from database import engine
 import models
-from routers import assets, watchlist, alerts
+from routers import assets, watchlist, alerts, auth
 from services.price_fetcher import fetch_and_store_prices
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -14,6 +14,7 @@ models.Base.metadata.create_all(bind=engine)
 app.include_router(assets.router, prefix="/assets", tags=["assets"])                
 app.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
 app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
 
