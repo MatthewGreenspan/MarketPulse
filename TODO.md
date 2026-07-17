@@ -12,6 +12,7 @@
 
 ## Backend
 - [x] Split the scheduler by source — crypto every 5 min, stocks every 30 min
+- [x] Add public `GET /assets/summary` — per-asset latest price, 24h % change, and volume (powers the dashboard stat cards and Top Assets list). Covered by `tests/test_summary.py`.
 - [ ] **Stock prices are broken: the Alpha Vantage free key is exhausted.** The free tier allows
       ~25 requests/day and `GLOBAL_QUOTE` costs 1 request per symbol, so even 5 stocks
       (720 req/day at the old 10-min interval) blows through it. Evidence: `price_history` holds
@@ -38,6 +39,8 @@
 - [x] Add loading states while API calls are in progress
 - [x] Better error messages (inline field errors on auth, toasts elsewhere — no browser alerts)
 - [x] Light mode polish
+- [x] Guest mode — "Continue as guest" opens the dashboard on real data; watchlist/alerts show a locked preview that prompts sign-up (guests never call protected endpoints)
+- [x] Finova-style dashboard — stat cards (top gainer/loser, most active, assets tracked), chart + Top Assets list, watchlist/alerts row
 - [ ] Chart time range selector (see Features)
 
 ## Features (v2)
