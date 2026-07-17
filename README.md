@@ -10,8 +10,9 @@ Built as a portfolio project by Matthew Greenspan (UF CS, Class of 2028).
 
 - Tracks real-time prices for 10 assets: BTC, ETH, SOL, ADA, LINK, AAPL, MSFT, GOOGL, AMZN, NVDA
 - Fetches prices every 10 minutes via CoinGecko (crypto) and Alpha Vantage (stocks)
-- Displays a live price chart for any asset
-- Per-user watchlists and price alerts
+- Dashboard overview: stat cards (top 24h gainer/loser, most active, assets tracked), a live price chart, and a Top Assets list
+- **Guest mode** — "Continue as guest" opens the full dashboard on real data with no account; the watchlist and alerts panels show a locked preview that prompts sign-up
+- Per-user watchlists and price alerts (once signed in)
 - JWT-based authentication with bcrypt password hashing
 - Light and dark mode
 
@@ -53,7 +54,7 @@ market-dashboard/
 │   ├── .env                 # Environment variables (not in git)
 │   ├── migrations/          # One-off schema migrations, run by hand
 │   ├── routers/
-│   │   ├── assets.py        # GET /assets/, GET /assets/{symbol}/prices
+│   │   ├── assets.py        # GET /assets/, GET /assets/summary, GET /assets/{symbol}/prices
 │   │   ├── watchlist.py     # GET/POST/DELETE /watchlist/ (auth required)
 │   │   ├── alerts.py        # GET/POST/DELETE /alerts/ (auth required)
 │   │   └── auth.py          # POST /auth/signup, POST /auth/login
@@ -87,6 +88,11 @@ market-dashboard/
 ---
 
 ## How Auth Works
+
+The dashboard runs in one of two modes: **guest** (no token) or **authenticated** (JWT token in memory).
+
+- **Guest:** the "Continue as guest" button on the auth page opens the dashboard using only the public endpoints (`/assets/`, `/assets/summary`, `/assets/{symbol}/prices`). The watchlist and alerts panels render a locked preview; any attempt to interact routes to the signup page. No protected endpoint is ever called as a guest.
+- **Authenticated:** signing in loads the same dashboard plus the user's real watchlist and alerts.
 
 Accounts are identified by email — there is no username.
 
