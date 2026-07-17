@@ -64,11 +64,32 @@ def fetch_stock_prices(db):
     print("Stock prices fetched and stored.")
 
 
+def fetch_crypto_prices_job():
+    """CoinGecko batches every coin into one request, so this can run often."""
+    db = SessionLocal()
+    try:
+        fetch_crypto_prices(db)
+        check_alerts(db)
+    finally:
+        db.close()
+
+
+def fetch_stock_prices_job():
+    """Alpha Vantage costs one request per symbol against a small daily quota,
+    so this runs far less often than the crypto job. See TODO.md."""
+    db = SessionLocal()
+    try:
+        fetch_stock_prices(db)
+        check_alerts(db)
+    finally:
+        db.close()
+
+
 def fetch_and_store_prices():
     db = SessionLocal()             # Create a new database session
     try:
         fetch_crypto_prices(db)     # Fetch crypto prices first
         fetch_stock_prices(db)      # Fetch stock prices after crypto prices
-        check_alerts(db)            # Check alerts after fetching prices      
+        check_alerts(db)            # Check alerts after fetching prices
     finally:
         db.close()

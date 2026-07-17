@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from database import engine
 import models
 from routers import assets, watchlist, alerts, auth
-from services.price_fetcher import fetch_and_store_prices
+from services.price_fetcher import fetch_crypto_prices_job, fetch_stock_prices_job
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -20,10 +20,20 @@ app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
 
 scheduler = BackgroundScheduler()                                                 
 
-@app.on_event("startup")                                                            
+@app.on_event("startup")
 def start_scheduler():
-    scheduler.add_job(fetch_and_store_prices, "interval", minutes=10)              
-    scheduler.start()                                                              
+    # Crypto and stocks are scheduled apart because their APIs cost different
+    # things: CoinGecko batches all coins into one free request, while Alpha
+    # Vantage spends one request per symbol from a small daily quota.
+    scheduler.add_job(
+        fetch_crypto_prices_job, "interval", minutes=5,
+        id="crypto_prices", max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        fetch_stock_prices_job, "interval", minutes=30,
+        id="stock_prices", max_instances=1, coalesce=True,
+    )
+    scheduler.start()
 
 @app.on_event("shutdown")                                                           
 def shutdown_scheduler():

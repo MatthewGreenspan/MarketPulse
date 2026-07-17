@@ -4,26 +4,41 @@
 - [ ] Replace sequential integer IDs with UUIDs on all tables (prevents IDOR attacks)
 - [ ] Add rate limiting with `slowapi` on auth and API endpoints
 - [ ] Add CORS restrictions so only the frontend domain can call the API
-- [ ] Fix token persistence — currently resets on page refresh (use httpOnly cookies or sessionStorage)
-- [ ] Add email verification on signup
+- [ ] Fix token persistence — currently resets on page refresh (use httpOnly cookies or sessionStorage).
+      More visible now that the login page gates the dashboard: a refresh drops you back to sign-in.
+- [ ] Add email verification on signup (format + disposable-domain checks are done; ownership is not proven)
 - [ ] Add password reset flow
+- [x] Email-only accounts — `username` dropped from the users table (`migrations/001_drop_username.py`)
 
 ## Backend
-- [ ] Change scheduler interval from 10 minutes to 1 minute for more accurate price data
+- [x] Split the scheduler by source — crypto every 5 min, stocks every 30 min
+- [ ] **Stock prices are broken: the Alpha Vantage free key is exhausted.** The free tier allows
+      ~25 requests/day and `GLOBAL_QUOTE` costs 1 request per symbol, so even 5 stocks
+      (720 req/day at the old 10-min interval) blows through it. Evidence: `price_history` holds
+      exactly 25 stock rows — AAPL 13, AMZN 12, and GOOGL/MSFT/NVDA have never recorded a price.
+      Fix by choosing one:
+        - a provider with batch quotes on a free tier (Finnhub, Twelve Data, yfinance)
+        - a paid Alpha Vantage plan
+        - fetching a small rotating subset of symbols per run
+- [ ] Add S&P 500 assets — **blocked on the above.** 503 symbols × 48 runs/day = ~24,100 requests/day
+      against a 25/day quota. A single full pass costs 503 requests, so this is not reachable by
+      changing the interval; it needs a different data source.
 - [ ] Add data retention policy — auto-delete price_history rows older than 90 days
+      (more urgent now that crypto writes 12×/hour)
 - [ ] Add `slowapi` rate limiting (max requests per IP per minute)
 - [ ] Move `get_db` dependency to `dependencies.py` and remove duplicates in routers
 
 ## Frontend
-- [ ] Redesign with proper UI — component library or better CSS
-- [ ] Replace auth modal with a dedicated login/signup page
-- [ ] Show asset name instead of "Asset ID #5" in alerts panel
-- [ ] Show logged-in username in nav
-- [ ] Hide watchlist/alerts add forms when not logged in
-- [ ] Mobile responsive improvements
-- [ ] Add loading states while API calls are in progress
-- [ ] Better error messages (e.g. "Asset not found" shown in UI, not browser alert)
-- [ ] Light mode polish
+- [x] Redesign with proper UI — component library or better CSS
+- [x] Replace auth modal with a dedicated login/signup page
+- [x] Show asset name instead of "Asset ID #5" in alerts panel
+- [x] Show account icon in nav (avatar; email intentionally not displayed)
+- [x] Hide watchlist/alerts add forms when not logged in
+- [x] Mobile responsive improvements
+- [x] Add loading states while API calls are in progress
+- [x] Better error messages (inline field errors on auth, toasts elsewhere — no browser alerts)
+- [x] Light mode polish
+- [ ] Chart time range selector (see Features)
 
 ## Features (v2)
 - [ ] Prediction/buy-in suggestion engine

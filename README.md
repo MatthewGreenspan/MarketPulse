@@ -26,6 +26,7 @@ Built as a portfolio project by Matthew Greenspan (UF CS, Class of 2028).
 - APScheduler — background job that fetches prices on a schedule
 - bcrypt — password hashing
 - python-jose — JWT token generation and verification
+- email-validator — email format validation on signup (via Pydantic `EmailStr`)
 
 **Frontend**
 - TypeScript — compiled to JavaScript via tsc
@@ -50,6 +51,7 @@ market-dashboard/
 │   ├── seed.py              # Seeds the database with 10 assets
 │   ├── requirements.txt     # Python dependencies
 │   ├── .env                 # Environment variables (not in git)
+│   ├── migrations/          # One-off schema migrations, run by hand
 │   ├── routers/
 │   │   ├── assets.py        # GET /assets/, GET /assets/{symbol}/prices
 │   │   ├── watchlist.py     # GET/POST/DELETE /watchlist/ (auth required)
@@ -59,8 +61,8 @@ market-dashboard/
 │       ├── price_fetcher.py # Fetches prices from CoinGecko and Alpha Vantage
 │       └── alert_checker.py # Checks if any alerts have been triggered after each fetch
 ├── frontend/
-│   ├── index.html           # Full page structure — nav, hero, dashboard panels
-│   ├── style.css            # Dark/light theme using CSS variables
+│   ├── index.html           # Auth gate + dashboard (nav, chart, watchlist, alerts)
+│   ├── style.css            # Design tokens + dark/light theme using CSS variables
 │   ├── tsconfig.json        # TypeScript compiler config
 │   ├── package.json         # npm scripts (build, watch)
 │   └── src/
@@ -80,17 +82,21 @@ market-dashboard/
 
 **alerts** — per-user price alerts (user_id, asset_id, condition, target_price, is_triggered)
 
-**users** — registered users (username, email, password_hash)
+**users** — registered users (email, password_hash)
 
 ---
 
 ## How Auth Works
 
-1. User signs up → password is hashed with bcrypt → stored in `users` table
+Accounts are identified by email — there is no username.
+
+1. User signs up with email + password → email is validated (format via `EmailStr`, plus a blocklist of placeholder and disposable domains) and the password is hashed with bcrypt → stored in `users` table
 2. Server returns a JWT token signed with `SECRET_KEY`
 3. Frontend stores token in memory and sends it as `Authorization: Bearer <token>` header on every protected request
 4. `get_current_user` dependency in `dependencies.py` validates the token and returns the current user
 5. Watchlist and alert endpoints filter by `user_id` so users only see their own data
+
+The login/signup page gates the dashboard: nothing renders until a token exists. Since the token lives in memory, a page refresh returns you to the sign-in page (see `TODO.md`).
 
 ---
 

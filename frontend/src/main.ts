@@ -1,199 +1,674 @@
-import { getWatchlist, addToWatchlist, removeFromWatchlist, getPrices, getAssets, getAlerts, createAlert, deleteAlert, login, signup, logout, isLoggedIn } from "./api.js";
+import {
+    ApiError,
+    addToWatchlist,
+    createAlert,
+    deleteAlert,
+    getAlerts,
+    getAssets,
+    getPrices,
+    getWatchlist,
+    isLoggedIn,
+    login,
+    logout,
+    removeFromWatchlist,
+    signup,
+    type Alert,
+    type Asset,
+    type PricePoint,
+} from "./api.js";
+import { startBackdrop, stopBackdrop } from "./backdrop.js";
 
+type AuthMode = "login" | "signup";
+
+let authMode: AuthMode = "login";
 let priceChart: any = null;
+let chartedSymbol: string | null = null;
+let assets: Asset[] = [];
 
-async function renderWatchlist() {
-    const watchlist = await getWatchlist();
-    const container = document.getElementById("watchlist-cards")!;
-    container.innerHTML = "";
+function el<T extends Element = HTMLElement>(id: string): T {
+    const node = document.getElementById(id);
+    if (!node) throw new Error(`Missing element: #${id}`);
+    return node as unknown as T;
+}
 
-    if (!Array.isArray(watchlist)) {
-        container.innerHTML = "<p>Please log in to see your watchlist.</p>";
+const money = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+});
+
+function formatPrice(value: number | null | undefined): string {
+    return typeof value === "number" ? money.format(value) : "—";
+}
+
+/* ---------- Toast ---------- */
+
+let toastTimer: number | undefined;
+
+function toast(message: string, tone: "info" | "error" = "info"): void {
+    const node = el<HTMLDivElement>("toast");
+    node.textContent = message;
+    node.dataset.tone = tone;
+    node.dataset.visible = "true";
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+        node.dataset.visible = "false";
+    }, 4000);
+}
+
+function messageFor(error: unknown): string {
+    return error instanceof ApiError ? error.message : "Something went wrong. Try again.";
+}
+
+/* ---------- Theme ---------- */
+
+const SUN_ICON = `<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />`;
+const MOON_ICON = `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />`;
+
+function applyTheme(theme: "dark" | "light"): void {
+    document.documentElement.setAttribute("data-theme", theme);
+
+    const toggle = el<HTMLButtonElement>("theme-toggle");
+    const icon = el<SVGElement>("theme-icon");
+    const nextIsLight = theme === "dark";
+
+    toggle.setAttribute("aria-label", nextIsLight ? "Switch to light mode" : "Switch to dark mode");
+    icon.innerHTML = nextIsLight ? SUN_ICON : MOON_ICON;
+
+    if (chartedSymbol) void renderChart(chartedSymbol);
+}
+
+function currentTheme(): "dark" | "light" {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+
+function cssVar(name: string): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/* ---------- Views ---------- */
+
+function showApp(): void {
+    el("auth-view").hidden = true;
+    el("app-view").hidden = false;
+    stopBackdrop();
+}
+
+function showAuth(): void {
+    el("auth-view").hidden = false;
+    el("app-view").hidden = true;
+    startBackdrop(el<HTMLCanvasElement>("auth-backdrop"));
+}
+
+/** Add forms are only usable when signed in. The gate normally covers this,
+    but the panels stay honest if they ever render unauthenticated. */
+function syncFormVisibility(): void {
+    const signedIn = isLoggedIn();
+    el<HTMLFormElement>("watchlist-form").hidden = !signedIn;
+    el<HTMLFormElement>("alert-form").hidden = !signedIn;
+}
+
+/* ---------- Auth form ---------- */
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+function setFieldError(inputId: string, errorId: string, message: string): void {
+    const input = el<HTMLInputElement>(inputId);
+    el(errorId).textContent = message;
+    if (message) {
+        input.setAttribute("aria-invalid", "true");
+    } else {
+        input.removeAttribute("aria-invalid");
+    }
+}
+
+function clearAuthErrors(): void {
+    setFieldError("auth-email", "auth-email-error", "");
+    setFieldError("auth-password", "auth-password-error", "");
+    setFieldError("auth-confirm", "auth-confirm-error", "");
+    const banner = el<HTMLParagraphElement>("auth-error");
+    banner.dataset.visible = "false";
+    banner.textContent = "";
+}
+
+function showAuthError(message: string): void {
+    const banner = el<HTMLParagraphElement>("auth-error");
+    banner.textContent = message;
+    banner.dataset.visible = "true";
+}
+
+function setAuthMode(mode: AuthMode): void {
+    authMode = mode;
+    const signingUp = mode === "signup";
+
+    el("auth-title").textContent = signingUp ? "Create your account" : "Sign in";
+    el("auth-sub").textContent = signingUp
+        ? "Start tracking ten tickers in about a minute."
+        : "Pick up where your watchlist left off.";
+    el("auth-submit").textContent = signingUp ? "Create account" : "Sign in";
+    el("auth-switch-text").textContent = signingUp ? "Already have an account?" : "New to MarketPulse?";
+    el("auth-switch-btn").textContent = signingUp ? "Sign in" : "Create an account";
+
+    el("confirm-field").hidden = !signingUp;
+    el("password-hint").hidden = !signingUp;
+
+    // Tells the password manager whether to offer a saved password or to save a new one.
+    el<HTMLInputElement>("auth-password").autocomplete = signingUp ? "new-password" : "current-password";
+
+    // Confirm never carries a value across modes: a stale value is invisible on
+    // sign-in and would append to whatever gets pasted next.
+    const confirm = el<HTMLInputElement>("auth-confirm");
+    confirm.required = signingUp;
+    confirm.disabled = !signingUp;
+    confirm.value = "";
+
+    clearAuthErrors();
+}
+
+function validateAuthForm(email: string, password: string, confirm: string): boolean {
+    clearAuthErrors();
+    let valid = true;
+
+    if (!email) {
+        setFieldError("auth-email", "auth-email-error", "Enter your email address");
+        valid = false;
+    } else if (!EMAIL_PATTERN.test(email)) {
+        setFieldError("auth-email", "auth-email-error", "Enter a valid email address, like you@domain.com");
+        valid = false;
+    }
+
+    if (!password) {
+        setFieldError("auth-password", "auth-password-error", "Enter your password");
+        valid = false;
+    } else if (authMode === "signup" && password.length < 8) {
+        setFieldError("auth-password", "auth-password-error", "Use at least 8 characters");
+        valid = false;
+    }
+
+    if (authMode === "signup") {
+        if (!confirm) {
+            setFieldError("auth-confirm", "auth-confirm-error", "Re-enter your password");
+            valid = false;
+        } else if (confirm !== password) {
+            setFieldError("auth-confirm", "auth-confirm-error", "Passwords don't match");
+            valid = false;
+        }
+    }
+
+    return valid;
+}
+
+async function handleAuthSubmit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+
+    const email = el<HTMLInputElement>("auth-email").value.trim();
+    const password = el<HTMLInputElement>("auth-password").value;
+    const confirm = el<HTMLInputElement>("auth-confirm").value;
+
+    if (!validateAuthForm(email, password, confirm)) return;
+
+    const submit = el<HTMLButtonElement>("auth-submit");
+    const label = submit.textContent ?? "";
+    submit.disabled = true;
+    submit.textContent = authMode === "signup" ? "Creating account…" : "Signing in…";
+
+    try {
+        if (authMode === "signup") {
+            await signup(email, password);
+        } else {
+            await login(email, password);
+        }
+        // Let the browser offer to save the credentials before the form leaves the DOM.
+        await enterApp();
+    } catch (error) {
+        showAuthError(messageFor(error));
+    } finally {
+        // Always restore the control, including on success: the form is reused
+        // after sign-out, and a stuck label is the only symptom a user would see.
+        submit.disabled = false;
+        submit.textContent = label;
+    }
+}
+
+/* ---------- Watchlist ---------- */
+
+function skeletons(count: number): string {
+    return Array.from({ length: count }, () => `<div class="skeleton"></div>`).join("");
+}
+
+async function renderWatchlist(): Promise<void> {
+    const container = el<HTMLDivElement>("watchlist-cards");
+    const count = el<HTMLSpanElement>("watchlist-count");
+    container.innerHTML = skeletons(3);
+
+    let items;
+    try {
+        items = await getWatchlist();
+    } catch (error) {
+        container.innerHTML = `<p class="empty"><strong>Couldn't load your watchlist</strong>${messageFor(error)}</p>`;
+        count.textContent = "";
         return;
     }
 
-    watchlist.forEach((item: any) => {
-        const card = document.createElement("div");
-        card.className = "card";
-        card.innerHTML = `
-            <span class="symbol">${item.symbol}</span>
-            <span class="name">${item.name}</span>
-            <span class="price">$${item.price_usd?.toFixed(2) ?? "N/A"}</span>
-            <button onclick="removeAsset('${item.symbol}')">✕</button>
-        `;
-        card.onclick = () => loadChart(item.symbol);
-        container.appendChild(card);
-    });
-}
+    count.textContent = items.length ? `${items.length}` : "";
 
-async function renderAlerts() {
-    const alerts = await getAlerts();
-    const container = document.getElementById("alerts-list")!;
-    container.innerHTML = "";
-
-    if (!Array.isArray(alerts)) {
-        container.innerHTML = "<p>Please log in to see your alerts.</p>";
+    if (items.length === 0) {
+        container.innerHTML = `<div class="empty"><strong>No assets yet</strong>Add a ticker below to start tracking it.</div>`;
         return;
     }
 
-    alerts.forEach((alert: any) => {
-        const div = document.createElement("div");
-        div.className = `alert-item ${alert.is_triggered ? "triggered" : ""}`;
-        div.innerHTML = `
-            <span>Asset ID: ${alert.asset_id} ${alert.condition} $${alert.target_price}</span>
-            <span>${alert.is_triggered ? "✓ Triggered" : "Pending"}</span>
-            <button onclick="removeAlert(${alert.id})">✕</button>
+    container.innerHTML = "";
+    for (const item of items) {
+        const row = document.createElement("div");
+        row.className = "asset-row";
+        row.setAttribute("aria-current", String(item.symbol === chartedSymbol));
+        row.innerHTML = `
+            <span class="asset-row__id">
+                <span class="asset-row__sym"></span>
+                <span class="asset-row__name"></span>
+            </span>
+            <span class="asset-row__price"></span>
         `;
-        container.appendChild(div);
-    });
+        row.querySelector(".asset-row__sym")!.textContent = item.symbol;
+        row.querySelector(".asset-row__name")!.textContent = item.name;
+        row.querySelector(".asset-row__price")!.textContent = formatPrice(item.price_usd);
+
+        const chart = document.createElement("button");
+        chart.type = "button";
+        chart.className = "visually-hidden";
+        chart.textContent = `Chart ${item.name}`;
+        chart.addEventListener("click", () => void selectAsset(item.symbol));
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "icon-btn";
+        remove.setAttribute("aria-label", `Remove ${item.name} from watchlist`);
+        remove.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>`;
+        remove.addEventListener("click", (event) => {
+            event.stopPropagation();
+            void handleRemoveAsset(item.symbol, item.name);
+        });
+
+        row.addEventListener("click", () => void selectAsset(item.symbol));
+        row.appendChild(chart);
+        row.appendChild(remove);
+        container.appendChild(row);
+    }
 }
 
-async function populateAssetSelectors() {
-    const assets = await getAssets();
-    const selector = document.getElementById("asset-selector") as HTMLSelectElement;
-    const alertSymbol = document.getElementById("alert-symbol") as HTMLSelectElement;
-
-    assets.forEach((asset: any) => {
-        const option1 = document.createElement("option");
-        option1.value = asset.symbol;
-        option1.text = asset.symbol;
-        selector.appendChild(option1);
-
-        const option2 = document.createElement("option");
-        option2.value = asset.symbol;
-        option2.text = asset.symbol;
-        alertSymbol.appendChild(option2);
-    });
-
-    if (assets.length > 0) loadChart(assets[0].symbol);
+async function handleRemoveAsset(symbol: string, name: string): Promise<void> {
+    try {
+        await removeFromWatchlist(symbol);
+        toast(`${name} removed from your watchlist.`);
+        await renderWatchlist();
+    } catch (error) {
+        toast(messageFor(error), "error");
+    }
 }
 
-async function loadChart(symbol: string) {
-    const prices = await getPrices(symbol, 48);
-    const labels = prices.map((p: any) => new Date(p.fetched_at).toLocaleTimeString()).reverse();
-    const data = prices.map((p: any) => p.price_usd).reverse();
+async function handleWatchlistSubmit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
 
-    const ctx = (document.getElementById("price-chart") as HTMLCanvasElement).getContext("2d")!;
+    const input = el<HTMLInputElement>("symbol-input");
+    const symbol = input.value.trim().toUpperCase();
+    if (!symbol) return;
+
+    const submit = el<HTMLButtonElement>("watchlist-submit");
+    submit.disabled = true;
+    submit.textContent = "Adding…";
+
+    try {
+        await addToWatchlist(symbol);
+        input.value = "";
+        toast(`${symbol} added to your watchlist.`);
+        await renderWatchlist();
+    } catch (error) {
+        toast(messageFor(error), "error");
+    } finally {
+        submit.disabled = false;
+        submit.textContent = "Add";
+    }
+}
+
+/* ---------- Alerts ---------- */
+
+function describeAlert(alert: Alert): string {
+    const direction = alert.condition === "above" ? "Rises above" : "Falls below";
+    return `${direction} ${money.format(alert.target_price)}`;
+}
+
+async function renderAlerts(): Promise<void> {
+    const container = el<HTMLDivElement>("alerts-list");
+    const count = el<HTMLSpanElement>("alerts-count");
+    container.innerHTML = skeletons(2);
+
+    let alerts: Alert[];
+    try {
+        alerts = await getAlerts();
+    } catch (error) {
+        container.innerHTML = `<p class="empty"><strong>Couldn't load your alerts</strong>${messageFor(error)}</p>`;
+        count.textContent = "";
+        return;
+    }
+
+    count.textContent = alerts.length ? `${alerts.length}` : "";
+
+    if (alerts.length === 0) {
+        container.innerHTML = `<div class="empty"><strong>No alerts set</strong>Choose an asset and a target price to get notified.</div>`;
+        return;
+    }
+
+    container.innerHTML = "";
+    for (const alert of alerts) {
+        const item = document.createElement("div");
+        item.className = `alert-item ${alert.is_triggered ? "triggered" : ""}`;
+        item.innerHTML = `
+            <span class="alert-item__what">
+                <span class="alert-item__asset"></span>
+                <span class="alert-item__rule"></span>
+            </span>
+            <span class="tag"></span>
+        `;
+
+        const label = alert.name ?? alert.symbol ?? "Unknown asset";
+        item.querySelector(".alert-item__asset")!.textContent = label;
+        item.querySelector(".alert-item__rule")!.textContent = describeAlert(alert);
+
+        const tag = item.querySelector(".tag") as HTMLSpanElement;
+        tag.textContent = alert.is_triggered ? "Triggered" : "Watching";
+        if (alert.is_triggered) tag.classList.add("tag--live");
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "icon-btn";
+        remove.setAttribute("aria-label", `Delete alert for ${label}`);
+        remove.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>`;
+        remove.addEventListener("click", () => void handleRemoveAlert(alert.id, label));
+
+        item.appendChild(remove);
+        container.appendChild(item);
+    }
+}
+
+async function handleRemoveAlert(id: number, label: string): Promise<void> {
+    try {
+        await deleteAlert(id);
+        toast(`Alert for ${label} deleted.`);
+        await renderAlerts();
+    } catch (error) {
+        toast(messageFor(error), "error");
+    }
+}
+
+async function handleAlertSubmit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+
+    const symbol = el<HTMLSelectElement>("alert-symbol").value;
+    const condition = el<HTMLSelectElement>("alert-condition").value;
+    const priceInput = el<HTMLInputElement>("alert-price");
+    const price = parseFloat(priceInput.value);
+
+    if (!Number.isFinite(price) || price <= 0) {
+        toast("Enter a target price above zero.", "error");
+        priceInput.focus();
+        return;
+    }
+
+    const submit = el<HTMLButtonElement>("alert-submit");
+    submit.disabled = true;
+    submit.textContent = "Creating…";
+
+    try {
+        await createAlert(symbol, condition, price);
+        priceInput.value = "";
+        toast(`Alert created for ${symbol}.`);
+        await renderAlerts();
+    } catch (error) {
+        toast(messageFor(error), "error");
+    } finally {
+        submit.disabled = false;
+        submit.textContent = "Create alert";
+    }
+}
+
+/* ---------- Chart + quote ---------- */
+
+function updateQuote(symbol: string, points: PricePoint[]): void {
+    const asset = assets.find((candidate) => candidate.symbol === symbol);
+    el("quote-symbol").textContent = asset ? `${asset.symbol} · ${asset.name}` : symbol;
+
+    if (points.length === 0) {
+        el("quote-price").textContent = "—";
+        el("quote-delta").textContent = "No data yet";
+        el("quote-delta").className = "quote__delta";
+        el("quote-updated").textContent = "Waiting for the next fetch";
+        return;
+    }
+
+    const latest = points[points.length - 1];
+    const first = points[0];
+    el("quote-price").textContent = formatPrice(latest.price_usd);
+
+    const delta = el("quote-delta");
+    if (points.length > 1 && first.price_usd !== 0) {
+        const change = latest.price_usd - first.price_usd;
+        const pct = (change / first.price_usd) * 100;
+        const rising = change >= 0;
+        delta.textContent = `${rising ? "+" : "−"}${money.format(Math.abs(change))} (${Math.abs(pct).toFixed(2)}%)`;
+        delta.className = `quote__delta ${rising ? "up" : "down"}`;
+    } else {
+        delta.textContent = "—";
+        delta.className = "quote__delta";
+    }
+
+    el("quote-updated").textContent = `Updated ${new Date(latest.fetched_at).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+    })}`;
+}
+
+async function renderChart(symbol: string): Promise<void> {
+    let points: PricePoint[];
+    try {
+        points = await getPrices(symbol, 48);
+    } catch (error) {
+        toast(messageFor(error), "error");
+        return;
+    }
+
+    // The API returns newest-first; charts read oldest-to-newest.
+    const ordered = [...points].reverse();
+    updateQuote(symbol, ordered);
+
+    const ChartLib = (window as any).Chart;
+    if (!ChartLib) return;
+
+    const accent = cssVar("--accent");
+    const muted = cssVar("--muted");
+    const grid = cssVar("--border");
+    const surface = cssVar("--surface-2");
+    const text = cssVar("--text");
+
+    const canvas = el<HTMLCanvasElement>("price-chart");
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const fill = context.createLinearGradient(0, 0, 0, canvas.height || 300);
+    fill.addColorStop(0, currentTheme() === "dark" ? "rgba(0, 225, 123, 0.22)" : "rgba(0, 168, 92, 0.18)");
+    fill.addColorStop(1, "rgba(0, 0, 0, 0)");
 
     if (priceChart) priceChart.destroy();
 
-    priceChart = new (window as any).Chart(ctx, {
+    priceChart = new ChartLib(context, {
         type: "line",
         data: {
-            labels,
-            datasets: [{
-                label: `${symbol} Price (USD)`,
-                data,
-                borderColor: "#00ff88",
-                backgroundColor: "rgba(0,255,136,0.1)",
-                tension: 0.3,
-            }]
+            labels: ordered.map((point) =>
+                new Date(point.fetched_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            ),
+            datasets: [
+                {
+                    label: `${symbol} price (USD)`,
+                    data: ordered.map((point) => point.price_usd),
+                    borderColor: accent,
+                    backgroundColor: fill,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: accent,
+                    pointHoverBorderColor: surface,
+                    pointHoverBorderWidth: 2,
+                },
+            ],
         },
         options: {
             responsive: true,
-            plugins: { legend: { labels: { color: "#fff" } } },
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: surface,
+                    borderColor: grid,
+                    borderWidth: 1,
+                    titleColor: muted,
+                    bodyColor: text,
+                    titleFont: { size: 11, weight: "normal" },
+                    bodyFont: { size: 14, weight: "600" },
+                    padding: 10,
+                    displayColors: false,
+                    callbacks: {
+                        // Hovering a point reports when it was fetched and what it cost.
+                        title: (items: any[]) => {
+                            const point = ordered[items[0].dataIndex];
+                            if (!point) return "";
+                            return new Date(point.fetched_at).toLocaleString([], {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                            });
+                        },
+                        label: (item: any) => money.format(item.parsed.y),
+                    },
+                },
+            },
             scales: {
-                x: { ticks: { color: "#aaa" } },
-                y: { ticks: { color: "#aaa" } }
-            }
-        }
+                x: {
+                    grid: { display: false },
+                    border: { color: grid },
+                    ticks: { color: muted, maxTicksLimit: 6, font: { size: 11 } },
+                },
+                y: {
+                    grid: { color: grid },
+                    border: { display: false },
+                    ticks: {
+                        color: muted,
+                        maxTicksLimit: 5,
+                        font: { size: 11 },
+                        callback: (value: number) => money.format(value),
+                    },
+                },
+            },
+        },
     });
 }
 
-function updateNavAuth() {
-    const navActions = document.getElementById("nav-actions")!;
-    if (isLoggedIn()) {
-        navActions.innerHTML = `
-            <button class="theme-toggle" id="theme-toggle">☀️ Light Mode</button>
-            <button onclick="handleLogout()">Logout</button>
-        `;
-    } else {
-        navActions.innerHTML = `
-            <button class="theme-toggle" id="theme-toggle">☀️ Light Mode</button>
-            <button onclick="showAuth('login')">Login</button>
-            <button onclick="showAuth('signup')">Sign Up</button>
-        `;
-    }
-    document.getElementById("theme-toggle")!.addEventListener("click", () => {
-        const html = document.documentElement;
-        const isDark = html.getAttribute("data-theme") === "dark";
-        html.setAttribute("data-theme", isDark ? "light" : "dark");
-        document.getElementById("theme-toggle")!.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
+async function selectAsset(symbol: string): Promise<void> {
+    chartedSymbol = symbol;
+    el<HTMLSelectElement>("asset-selector").value = symbol;
+
+    document.querySelectorAll<HTMLElement>(".asset-row").forEach((row) => {
+        const rowSymbol = row.querySelector(".asset-row__sym")?.textContent;
+        row.setAttribute("aria-current", String(rowSymbol === symbol));
     });
+
+    await renderChart(symbol);
 }
 
-(window as any).showAuth = (mode: string) => {
-    const modal = document.getElementById("auth-modal")!;
-    const title = document.getElementById("auth-title")!;
-    title.textContent = mode === "login" ? "Login" : "Sign Up";
-    modal.style.display = "flex";
-    (window as any).currentAuthMode = mode;
-};
+function populateAssetSelectors(): void {
+    const selector = el<HTMLSelectElement>("asset-selector");
+    const alertSymbol = el<HTMLSelectElement>("alert-symbol");
+    selector.innerHTML = "";
+    alertSymbol.innerHTML = "";
 
-(window as any).closeAuth = () => {
-    document.getElementById("auth-modal")!.style.display = "none";
-};
+    for (const asset of assets) {
+        const option = document.createElement("option");
+        option.value = asset.symbol;
+        option.textContent = `${asset.symbol} · ${asset.name}`;
+        selector.appendChild(option);
+        alertSymbol.appendChild(option.cloneNode(true));
+    }
+}
 
-(window as any).submitAuth = async () => {
-    const email = (document.getElementById("auth-email") as HTMLInputElement).value;
-    const password = (document.getElementById("auth-password") as HTMLInputElement).value;
-    const mode = (window as any).currentAuthMode;
+/* ---------- Session ---------- */
 
-    if (mode === "signup") {
-        const username = (document.getElementById("auth-username") as HTMLInputElement).value;
-        await signup(username, email, password);
-    } else {
-        await login(email, password);
+async function enterApp(): Promise<void> {
+    showApp();
+    syncFormVisibility();
+
+    try {
+        assets = await getAssets();
+        populateAssetSelectors();
+    } catch (error) {
+        toast(messageFor(error), "error");
     }
 
-    (window as any).closeAuth();
-    updateNavAuth();
-    renderWatchlist();
-    renderAlerts();
-};
+    const first = assets[0]?.symbol;
+    await Promise.all([
+        renderWatchlist(),
+        renderAlerts(),
+        first ? selectAsset(first) : Promise.resolve(),
+    ]);
+}
 
-(window as any).handleLogout = () => {
+function handleLogout(): void {
     logout();
-    updateNavAuth();
-    renderWatchlist();
-    renderAlerts();
-};
+    if (priceChart) {
+        priceChart.destroy();
+        priceChart = null;
+    }
+    chartedSymbol = null;
+    assets = [];
 
-(window as any).addToWatchlist = async () => {
-    const input = document.getElementById("symbol-input") as HTMLInputElement;
-    await addToWatchlist(input.value.toUpperCase());
-    input.value = "";
-    renderWatchlist();
-};
+    showAuth();
+    setAuthMode("login");
+    el<HTMLFormElement>("auth-form").reset();
+    const submit = el<HTMLButtonElement>("auth-submit");
+    submit.disabled = false;
+    submit.textContent = "Sign in";
+    toast("You're signed out.");
+}
 
-(window as any).removeAsset = async (symbol: string) => {
-    await removeFromWatchlist(symbol);
-    renderWatchlist();
-};
+/* ---------- Wiring ---------- */
 
-(window as any).createAlert = async () => {
-    const symbol = (document.getElementById("alert-symbol") as HTMLSelectElement).value;
-    const condition = (document.getElementById("alert-condition") as HTMLSelectElement).value;
-    const price = parseFloat((document.getElementById("alert-price") as HTMLInputElement).value);
-    await createAlert(symbol, condition, price);
-    renderAlerts();
-};
+function init(): void {
+    applyTheme("dark");
+    setAuthMode("login");
+    showAuth();
 
-(window as any).removeAlert = async (id: number) => {
-    await deleteAlert(id);
-    renderAlerts();
-};
+    el<HTMLFormElement>("auth-form").addEventListener("submit", (event) => void handleAuthSubmit(event as SubmitEvent));
+    el("auth-switch-btn").addEventListener("click", () => setAuthMode(authMode === "login" ? "signup" : "login"));
 
-(window as any).refreshAll = () => {
-    renderWatchlist();
-    renderAlerts();
-};
+    el("theme-toggle").addEventListener("click", () => {
+        applyTheme(currentTheme() === "dark" ? "light" : "dark");
+    });
 
-(window as any).loadChart = loadChart;
+    el<HTMLFormElement>("watchlist-form").addEventListener("submit", (event) => void handleWatchlistSubmit(event as SubmitEvent));
+    el<HTMLFormElement>("alert-form").addEventListener("submit", (event) => void handleAlertSubmit(event as SubmitEvent));
+    el<HTMLSelectElement>("asset-selector").addEventListener("change", (event) => {
+        void selectAsset((event.target as HTMLSelectElement).value);
+    });
 
-document.addEventListener("DOMContentLoaded", () => {
-    updateNavAuth();
-    populateAssetSelectors();
-    renderWatchlist();
-    renderAlerts();
-});
+    const dialog = el<HTMLDialogElement>("logout-dialog");
+    el("logout-btn").addEventListener("click", () => dialog.showModal());
+    el("logout-cancel").addEventListener("click", () => dialog.close());
+    el("logout-confirm").addEventListener("click", () => {
+        dialog.close();
+        handleLogout();
+    });
+}
+
+document.addEventListener("DOMContentLoaded", init);
