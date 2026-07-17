@@ -1,6 +1,7 @@
 const BASE_URL = "http://localhost:8000";
 
 let authToken: string | null = null;
+let guest = false;
 
 export class ApiError extends Error {
     status: number;
@@ -41,6 +42,16 @@ export interface Alert {
 export interface PricePoint {
     price_usd: number;
     fetched_at: string;
+}
+
+export interface AssetSummary {
+    symbol: string;
+    name: string;
+    asset_type: string;
+    price_usd: number | null;
+    change_pct_24h: number | null;
+    volume_24h: number | null;
+    fetched_at: string | null;
 }
 
 function authHeaders(): Record<string, string> {
@@ -93,19 +104,35 @@ function jsonPost(payload: unknown): RequestInit {
 export async function signup(email: string, password: string): Promise<void> {
     const data = await request<{ token: string }>("/auth/signup", jsonPost({ email, password }));
     authToken = data.token;
+    guest = false;
 }
 
 export async function login(email: string, password: string): Promise<void> {
     const data = await request<{ token: string }>("/auth/login", jsonPost({ email, password }));
     authToken = data.token;
+    guest = false;
 }
 
 export function logout(): void {
     authToken = null;
+    guest = false;
 }
 
 export function isLoggedIn(): boolean {
     return authToken !== null;
+}
+
+export function enterGuestMode(): void {
+    guest = true;
+    authToken = null;
+}
+
+export function isGuest(): boolean {
+    return guest;
+}
+
+export function getAssetSummary(): Promise<AssetSummary[]> {
+    return request<AssetSummary[]>("/assets/summary");
 }
 
 export function getAssets(): Promise<Asset[]> {
