@@ -85,6 +85,11 @@
                 <span id="auth-switch-text">New to MarketPulse?</span>
                 <button type="button" id="auth-switch-btn">Create an account</button>
             </p>
+
+            <div class="auth-guest">
+                <span class="auth-guest__divider">or</span>
+                <button type="button" class="btn btn-ghost btn-block" id="guest-btn">Continue as guest →</button>
+            </div>
         </div>
     </section>
 </main>
@@ -109,6 +114,8 @@
                 </svg>
             </button>
 
+            <button type="button" class="btn btn-primary" id="nav-signup" hidden>Create account</button>
+
             <button type="button" class="icon-btn" id="logout-btn" aria-label="Sign out">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -126,6 +133,9 @@
     </nav>
 
     <main class="dashboard">
+        <section class="stat-row" id="stat-row"></section>
+
+        <div class="overview-row">
         <section class="panel panel--chart">
             <div class="quote">
                 <div>
@@ -153,6 +163,14 @@
                 <canvas id="price-chart" aria-label="Price history chart"></canvas>
             </div>
         </section>
+
+        <section class="panel panel--top">
+            <div class="panel__head">
+                <h2 class="panel__title">Top Assets</h2>
+            </div>
+            <div id="top-assets" class="asset-list"></div>
+        </section>
+        </div>
 
         <section class="panel">
             <div class="panel__head">
