@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MarketPulse</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <nav>
+        <span class="nav-brand">MarketPulse</span>
+        <div class="nav-actions">
+            <button class="theme-toggle" id="theme-toggle">☀️ Light Mode</button>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <h1>Smarter Market Decisions</h1>
+        <p>Real-time crypto & stock tracking with AI-powered buy-in suggestions.</p>
+        <button class="hero-btn" onclick="document.querySelector('.dashboard').scrollIntoView({behavior:'smooth'})">
+            Open Dashboard
+        </button>
+    </section>
+
+    <div class="dashboard">
+        <div class="panel">
+            <h2>Watchlist</h2>
+            <div id="watchlist-cards"></div>
+            <div class="watchlist-add">
+                <input type="text" id="symbol-input" placeholder="e.g. BTC" />
+                <button onclick="addToWatchlist()">Add</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Price Chart</h2>
+            <div class="chart-controls">
+                <select id="asset-selector" onchange="loadChart(this.value)"></select>
+            </div>
+            <canvas id="price-chart"></canvas>
+        </div>
+
+        <div class="panel">
+            <h2>Alerts</h2>
+            <div id="alerts-list"></div>
+            <div class="alert-form">
+                <select id="alert-symbol"></select>
+                <select id="alert-condition">
+                    <option value="above">Price goes above</option>
+                    <option value="below">Price goes below</option>
+                </select>
+                <input type="number" id="alert-price" placeholder="Target price (USD)" />
+                <button onclick="createAlert()">Create Alert</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="dist/main.js"></script>
+</body>
+</html>

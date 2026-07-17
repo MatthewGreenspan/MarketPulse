@@ -54,12 +54,14 @@ async function populateAssetSelectors() {
         option2.text = asset.symbol;
         alertSymbol.appendChild(option2);
     });
+
+    if (assets.length > 0) loadChart(assets[0].symbol);
 }
 
 async function loadChart(symbol: string) {
     const prices = await getPrices(symbol, 48);
-    const labels = prices.map((p: any) => new Date(p.fetched_at).toLocaleTimeString());
-    const data = prices.map((p: any) => p.price_usd);
+    const labels = prices.map((p: any) => new Date(p.fetched_at).toLocaleTimeString()).reverse();
+    const data = prices.map((p: any) => p.price_usd).reverse();
 
     const ctx = (document.getElementById("price-chart") as HTMLCanvasElement).getContext("2d")!;
 
@@ -118,8 +120,17 @@ async function loadChart(symbol: string) {
     renderAlerts();
 };
 
+(window as any).loadChart = loadChart;
+
 document.addEventListener("DOMContentLoaded", () => {
     populateAssetSelectors();
     renderWatchlist();
     renderAlerts();
+});
+
+document.getElementById("theme-toggle")!.addEventListener("click", () => {
+    const html = document.documentElement;
+    const isDark = html.getAttribute("data-theme") === "dark";
+    html.setAttribute("data-theme", isDark ? "light" : "dark");
+    document.getElementById("theme-toggle")!.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
 });

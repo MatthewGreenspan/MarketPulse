@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles 
 from database import engine
 import models
 from routers import assets, watchlist, alerts
@@ -11,8 +12,10 @@ app = FastAPI()
 models.Base.metadata.create_all(bind=engine)
 
 app.include_router(assets.router, prefix="/assets", tags=["assets"])                
-app.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])       
-app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])              
+app.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
+app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
+
+app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
 
 scheduler = BackgroundScheduler()                                                 
 
@@ -24,7 +27,3 @@ def start_scheduler():
 @app.on_event("shutdown")                                                           
 def shutdown_scheduler():
     scheduler.shutdown()                                                           
-
-@app.get("/")                                                                       
-def root():
-    return{"message": "Market Dashboard API is running"}
