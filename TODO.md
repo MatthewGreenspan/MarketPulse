@@ -2,7 +2,10 @@
 
 ## Security (must do before deployment)
 - [ ] Replace sequential integer IDs with UUIDs on all tables (prevents IDOR attacks)
-- [ ] Add rate limiting with `slowapi` on auth and API endpoints
+- [x] Add rate limiting with `slowapi` on auth and API endpoints — 60/min default on every
+      route, 5/min on `/auth/login` and `/auth/signup`, keyed per client IP (`rate_limit.py`).
+      Covered by `tests/test_rate_limit.py`. **Deployment follow-up:** behind a proxy (Railway)
+      configure `X-Forwarded-For` handling or all users share the proxy's IP bucket.
 - [ ] Add CORS restrictions so only the frontend domain can call the API
 - [ ] Fix token persistence — currently resets on page refresh (use httpOnly cookies or sessionStorage).
       More visible now that the login page gates the dashboard: a refresh drops you back to sign-in.
@@ -26,7 +29,7 @@
       changing the interval; it needs a different data source.
 - [ ] Add data retention policy — auto-delete price_history rows older than 90 days
       (more urgent now that crypto writes 12×/hour)
-- [ ] Add `slowapi` rate limiting (max requests per IP per minute)
+- [x] Add `slowapi` rate limiting (max requests per IP per minute) — see Security section above
 - [ ] Move `get_db` dependency to `dependencies.py` and remove duplicates in routers
 
 ## Frontend
