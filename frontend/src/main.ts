@@ -444,7 +444,7 @@ async function renderAlerts(): Promise<void> {
     }
 }
 
-async function handleRemoveAlert(id: number, label: string): Promise<void> {
+async function handleRemoveAlert(id: string, label: string): Promise<void> {
     try {
         await deleteAlert(id);
         toast(`Alert for ${label} deleted.`);
@@ -539,11 +539,13 @@ function renderStatCards(): void {
         null
     );
 
-    const hasVolume = summary.some((item) => typeof item.volume_24h === "number");
-    const totalVolume = summary.reduce(
-        (sum, item) => sum + (typeof item.volume_24h === "number" ? item.volume_24h : 0),
-        0
+    // Volume is only comparable within crypto: CoinGecko reports it in USD, while
+    // yfinance reports stock volume as a share count. Summing the two would be
+    // meaningless, so this card is crypto-only (USD) and labelled as such.
+    const cryptoVolume = summary.filter(
+        (item) => item.asset_type === "crypto" && typeof item.volume_24h === "number"
     );
+    const totalCryptoVolume = cryptoVolume.reduce((sum, item) => sum + (item.volume_24h as number), 0);
 
     row.append(
         gainer
@@ -552,9 +554,9 @@ function renderStatCards(): void {
         loser
             ? makeStatCard("Top loser · 24h", loser.symbol, formatPrice(loser.price_usd), deltaFor(loser))
             : makeStatCard("Top loser · 24h", "—", "Not enough data", null),
-        hasVolume
-            ? makeStatCard("Total 24h volume", formatVolume(totalVolume), "across all assets", null)
-            : makeStatCard("Total 24h volume", "—", "Not enough data", null)
+        cryptoVolume.length
+            ? makeStatCard("Crypto 24h volume", formatVolume(totalCryptoVolume), "across all coins", null)
+            : makeStatCard("Crypto 24h volume", "—", "Not enough data", null)
     );
 }
 

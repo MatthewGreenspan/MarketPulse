@@ -1,3 +1,4 @@
+from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
@@ -53,7 +54,7 @@ def create_alert(symbol: str, condition: str, target_price: float, db: Session =
     return {"message": f"Alert created for {asset.symbol} {condition} ${target_price}"}
 
 @router.delete("/{alert_id}")
-def delete_alert(alert_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_alert(alert_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     alert = db.query(Alert).filter(Alert.id == alert_id, Alert.user_id == current_user.id).first()
     
     if not alert:

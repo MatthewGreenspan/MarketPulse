@@ -17,14 +17,14 @@ export class ApiError extends Error {
 }
 
 export interface Asset {
-    id: number;
+    id: string;
     symbol: string;
     name: string;
     asset_type: string;
 }
 
 export interface WatchlistItem {
-    id: number;
+    id: string;
     symbol: string;
     name: string;
     price_usd: number | null;
@@ -32,8 +32,8 @@ export interface WatchlistItem {
 }
 
 export interface Alert {
-    id: number;
-    asset_id: number;
+    id: string;
+    asset_id: string;
     symbol: string | null;
     name: string | null;
     condition: string;
@@ -177,8 +177,8 @@ export function createAlert(symbol: string, condition: string, targetPrice: numb
     });
 }
 
-export function deleteAlert(alertId: number): Promise<{ message: string }> {
-    return request<{ message: string }>(`/alerts/${alertId}`, {
+export function deleteAlert(alertId: string): Promise<{ message: string }> {
+    return request<{ message: string }>(`/alerts/${encodeURIComponent(alertId)}`, {
         method: "DELETE",
         headers: authHeaders(),
     });

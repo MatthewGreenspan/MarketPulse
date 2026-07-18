@@ -4,6 +4,7 @@ from database import get_db
 from models import User
 from rate_limit import limiter
 from pydantic import BaseModel, EmailStr, field_validator
+from uuid import UUID
 import bcrypt
 from jose import jwt
 from datetime import datetime, timedelta
@@ -59,7 +60,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def create_token(user_id: int):
+def create_token(user_id: UUID):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 

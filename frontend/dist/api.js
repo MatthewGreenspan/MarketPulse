@@ -128,7 +128,7 @@ export function createAlert(symbol, condition, targetPrice) {
     });
 }
 export function deleteAlert(alertId) {
-    return request(`/alerts/${alertId}`, {
+    return request(`/alerts/${encodeURIComponent(alertId)}`, {
         method: "DELETE",
         headers: authHeaders(),
     });

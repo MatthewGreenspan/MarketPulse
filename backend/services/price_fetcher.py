@@ -1,3 +1,4 @@
+import math
 import httpx
 import yfinance as yf
 from models import Asset, PriceHistory
@@ -32,19 +33,28 @@ def fetch_crypto_prices(db):
     print("Crypto prices fetched and stored.")
 
 
+def _finite(value):
+    # float(value) if it's a real, finite number, else None. yfinance hands back
+    # None *or* NaN for fields it can't resolve, and 0 is a value worth keeping
+    # (distinct from "unknown"), so a plain `if value` truthiness check is wrong.
+    if value is None:
+        return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return num if math.isfinite(num) else None
+
+
 def _stock_quote(ticker):
     info = ticker.fast_info
-    price = info.last_price
+    price = _finite(info.last_price)
     if price is None:
         return None
 
-    volume = getattr(info, "last_volume", None)
-    market_cap = getattr(info, "market_cap", None)
-    return (
-        float(price),
-        float(volume) if volume else None,
-        float(market_cap) if market_cap else None,
-    )
+    volume = _finite(getattr(info, "last_volume", None))
+    market_cap = _finite(getattr(info, "market_cap", None))
+    return price, volume, market_cap
 
 
 def fetch_stock_prices(db):

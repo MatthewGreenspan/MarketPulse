@@ -454,15 +454,18 @@ function renderStatCards() {
     const withChange = summary.filter((item) => typeof item.change_pct_24h === "number");
     const gainer = withChange.reduce((best, item) => (!best || item.change_pct_24h > best.change_pct_24h ? item : best), null);
     const loser = withChange.reduce((worst, item) => (!worst || item.change_pct_24h < worst.change_pct_24h ? item : worst), null);
-    const hasVolume = summary.some((item) => typeof item.volume_24h === "number");
-    const totalVolume = summary.reduce((sum, item) => sum + (typeof item.volume_24h === "number" ? item.volume_24h : 0), 0);
+    // Volume is only comparable within crypto: CoinGecko reports it in USD, while
+    // yfinance reports stock volume as a share count. Summing the two would be
+    // meaningless, so this card is crypto-only (USD) and labelled as such.
+    const cryptoVolume = summary.filter((item) => item.asset_type === "crypto" && typeof item.volume_24h === "number");
+    const totalCryptoVolume = cryptoVolume.reduce((sum, item) => sum + item.volume_24h, 0);
     row.append(gainer
         ? makeStatCard("Top gainer · 24h", gainer.symbol, formatPrice(gainer.price_usd), deltaFor(gainer))
         : makeStatCard("Top gainer · 24h", "—", "Not enough data", null), loser
         ? makeStatCard("Top loser · 24h", loser.symbol, formatPrice(loser.price_usd), deltaFor(loser))
-        : makeStatCard("Top loser · 24h", "—", "Not enough data", null), hasVolume
-        ? makeStatCard("Total 24h volume", formatVolume(totalVolume), "across all assets", null)
-        : makeStatCard("Total 24h volume", "—", "Not enough data", null));
+        : makeStatCard("Top loser · 24h", "—", "Not enough data", null), cryptoVolume.length
+        ? makeStatCard("Crypto 24h volume", formatVolume(totalCryptoVolume), "across all coins", null)
+        : makeStatCard("Crypto 24h volume", "—", "Not enough data", null));
 }
 /** Apply the current filter tab and sort selection to the summary list. */
 function sortedFilteredAssets() {

@@ -51,12 +51,8 @@ scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def start_scheduler():
-    # Two jobs so a slow/failed stock fetch never blocks the crypto refresh.
-    # Neither provider has a per-request cap we need to protect: CoinGecko
-    # batches all coins into one request, and yfinance is unmetered — so both
-    # run on the same short cadence.
     scheduler.add_job(
-        fetch_crypto_prices_job, "interval", minutes=5,
+        fetch_crypto_prices_job, "interval", minutes=3,
         id="crypto_prices", max_instances=1, coalesce=True,
     )
     scheduler.add_job(
