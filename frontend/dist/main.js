@@ -14,6 +14,10 @@ let priceChart = null;
 let chartedSymbol = null;
 let assets = [];
 let summary = [];
+// Assets panel view state. Default mirrors the old "top movers" list: biggest
+// 24h gainers first.
+let assetFilter = "all";
+let assetSort = { key: "change", dir: "desc" };
 function el(id) {
     const node = document.getElementById(id);
     if (!node)
@@ -58,10 +62,12 @@ const SUN_ICON = `<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4
 const MOON_ICON = `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />`;
 function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
-    const toggle = el("theme-toggle");
-    const icon = el("theme-icon");
+    // The theme control lives in the account menu and advertises the theme it
+    // switches *to*, so in dark mode it offers "Light mode" with a sun icon.
+    const icon = el("menu-theme-icon");
+    const label = el("menu-theme-label");
     const nextIsLight = theme === "dark";
-    toggle.setAttribute("aria-label", nextIsLight ? "Switch to light mode" : "Switch to dark mode");
+    label.textContent = nextIsLight ? "Light mode" : "Dark mode";
     icon.innerHTML = nextIsLight ? SUN_ICON : MOON_ICON;
     if (chartedSymbol)
         void renderChart(chartedSymbol);
@@ -84,9 +90,21 @@ function showAuth() {
     startBackdrop(el("auth-backdrop"));
 }
 function syncNav() {
+    // The account menu shows account controls (Privacy/Password/Sign out) to
+    // members and a "Create account" item to guests.
     const guestNow = isGuest();
-    el("logout-btn").hidden = guestNow;
-    el("nav-signup").hidden = !guestNow;
+    el("menu-member-items").hidden = guestNow;
+    el("menu-signup").hidden = !guestNow;
+}
+/* ---------- Account menu ---------- */
+function setAccountMenu(open) {
+    el("account-panel").hidden = !open;
+    el("account-trigger").setAttribute("aria-expanded", String(open));
+}
+function toggleAccountMenu() {
+    // Open when currently hidden. Coerce because the DOM `hidden` type widened
+    // to `boolean | "until-found"`.
+    setAccountMenu(Boolean(el("account-panel").hidden));
 }
 function promptSignup() {
     showAuth();
@@ -434,28 +452,69 @@ function renderStatCards() {
     const row = el("stat-row");
     row.innerHTML = "";
     const withChange = summary.filter((item) => typeof item.change_pct_24h === "number");
-    const withVolume = summary.filter((item) => typeof item.volume_24h === "number");
     const gainer = withChange.reduce((best, item) => (!best || item.change_pct_24h > best.change_pct_24h ? item : best), null);
     const loser = withChange.reduce((worst, item) => (!worst || item.change_pct_24h < worst.change_pct_24h ? item : worst), null);
-    const active = withVolume.reduce((top, item) => (!top || item.volume_24h > top.volume_24h ? item : top), null);
+    const hasVolume = summary.some((item) => typeof item.volume_24h === "number");
+    const totalVolume = summary.reduce((sum, item) => sum + (typeof item.volume_24h === "number" ? item.volume_24h : 0), 0);
     row.append(gainer
         ? makeStatCard("Top gainer · 24h", gainer.symbol, formatPrice(gainer.price_usd), deltaFor(gainer))
         : makeStatCard("Top gainer · 24h", "—", "Not enough data", null), loser
         ? makeStatCard("Top loser · 24h", loser.symbol, formatPrice(loser.price_usd), deltaFor(loser))
-        : makeStatCard("Top loser · 24h", "—", "Not enough data", null), active
-        ? makeStatCard("Most active", active.symbol, formatVolume(active.volume_24h), null)
-        : makeStatCard("Most active", "—", "Not enough data", null), makeStatCard("Assets tracked", String(summary.length), "in the market", null));
+        : makeStatCard("Top loser · 24h", "—", "Not enough data", null), hasVolume
+        ? makeStatCard("Total 24h volume", formatVolume(totalVolume), "across all assets", null)
+        : makeStatCard("Total 24h volume", "—", "Not enough data", null));
 }
-function renderTopAssets() {
-    const container = el("top-assets");
+/** Apply the current filter tab and sort selection to the summary list. */
+function sortedFilteredAssets() {
+    const filtered = assetFilter === "all" ? summary : summary.filter((item) => item.asset_type === assetFilter);
+    const { key, dir } = assetSort;
+    const factor = dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+        if (key === "name")
+            return factor * a.symbol.localeCompare(b.symbol);
+        const av = key === "price" ? a.price_usd : a.change_pct_24h;
+        const bv = key === "price" ? b.price_usd : b.change_pct_24h;
+        // Assets with no price/change yet always sink to the bottom, whichever
+        // direction is active — a null isn't "smaller", it's just unknown.
+        if (typeof av !== "number" && typeof bv !== "number")
+            return 0;
+        if (typeof av !== "number")
+            return 1;
+        if (typeof bv !== "number")
+            return -1;
+        return factor * (av - bv);
+    });
+}
+/** Reflect the active tab on the filter segmented control. */
+function syncFilterButtons() {
+    document.querySelectorAll("#asset-filter .segmented__btn").forEach((btn) => {
+        btn.setAttribute("aria-selected", String(btn.dataset.filter === assetFilter));
+    });
+}
+/** Reflect the active sort key + direction, appending a ↑/↓ to the live column. */
+function syncSortButtons() {
+    document.querySelectorAll("#assets-sort .sort-btn").forEach((btn) => {
+        var _a, _b;
+        var _c;
+        // Capture the plain label once so repeated renders don't stack arrows.
+        const base = ((_a = (_c = btn.dataset).label) !== null && _a !== void 0 ? _a : (_c.label = (_b = btn.textContent) !== null && _b !== void 0 ? _b : ""));
+        const active = btn.dataset.key === assetSort.key;
+        btn.dataset.active = String(active);
+        btn.setAttribute("aria-pressed", String(active));
+        btn.textContent = active ? `${base} ${assetSort.dir === "asc" ? "↑" : "↓"}` : base;
+    });
+}
+function renderAssets() {
+    syncFilterButtons();
+    syncSortButtons();
+    const container = el("assets-list");
     container.innerHTML = "";
-    if (summary.length === 0) {
-        container.innerHTML = `<div class="empty"><strong>No assets</strong>Nothing to show yet.</div>`;
+    const rows = sortedFilteredAssets();
+    if (rows.length === 0) {
+        container.innerHTML = `<div class="empty"><strong>No assets</strong>Nothing matches this filter yet.</div>`;
         return;
     }
-    // Biggest 24h movers first; assets without a change sink to the bottom.
-    const ordered = [...summary].sort((a, b) => { var _a, _b; return ((_a = b.change_pct_24h) !== null && _a !== void 0 ? _a : -Infinity) - ((_b = a.change_pct_24h) !== null && _b !== void 0 ? _b : -Infinity); });
-    for (const item of ordered) {
+    for (const item of rows) {
         const row = document.createElement("button");
         row.type = "button";
         row.className = "asset-row asset-row--quote";
@@ -481,9 +540,25 @@ function renderTopAssets() {
         container.append(row);
     }
 }
+/** Move between filter tabs. */
+function setAssetFilter(filter) {
+    assetFilter = filter;
+    renderAssets();
+}
+/** Pick a sort column; clicking the active column flips its direction. New
+    columns start descending for price/change (biggest first), ascending for name. */
+function setAssetSort(key) {
+    if (assetSort.key === key) {
+        assetSort = { key, dir: assetSort.dir === "asc" ? "desc" : "asc" };
+    }
+    else {
+        assetSort = { key, dir: key === "name" ? "asc" : "desc" };
+    }
+    renderAssets();
+}
 function renderOverview() {
     renderStatCards();
-    renderTopAssets();
+    renderAssets();
 }
 /* ---------- Guest locked panels ---------- */
 function lockedPanel(container, message, cta) {
@@ -745,17 +820,48 @@ function init() {
     el("auth-form").addEventListener("submit", (event) => void handleAuthSubmit(event));
     el("auth-switch-btn").addEventListener("click", () => setAuthMode(authMode === "login" ? "signup" : "login"));
     el("guest-btn").addEventListener("click", () => void enterGuest());
-    el("nav-signup").addEventListener("click", promptSignup);
-    el("theme-toggle").addEventListener("click", () => {
+    const dialog = el("logout-dialog");
+    // Account menu: theme toggle keeps the menu open so the change is visible;
+    // navigation items close it first.
+    el("account-trigger").addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleAccountMenu();
+    });
+    el("menu-theme").addEventListener("click", () => {
         applyTheme(currentTheme() === "dark" ? "light" : "dark");
+    });
+    el("menu-signup").addEventListener("click", () => {
+        setAccountMenu(false);
+        promptSignup();
+    });
+    el("menu-logout").addEventListener("click", () => {
+        setAccountMenu(false);
+        dialog.showModal();
+    });
+    document.addEventListener("click", (event) => {
+        if (!el("account-menu").contains(event.target))
+            setAccountMenu(false);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape")
+            setAccountMenu(false);
+    });
+    // Assets panel: type filter tabs and click-to-sort columns.
+    el("asset-filter").addEventListener("click", (event) => {
+        const btn = event.target.closest(".segmented__btn");
+        if (btn)
+            setAssetFilter(btn.dataset.filter);
+    });
+    el("assets-sort").addEventListener("click", (event) => {
+        const btn = event.target.closest(".sort-btn");
+        if (btn)
+            setAssetSort(btn.dataset.key);
     });
     el("watchlist-form").addEventListener("submit", (event) => void handleWatchlistSubmit(event));
     el("alert-form").addEventListener("submit", (event) => void handleAlertSubmit(event));
     el("asset-selector").addEventListener("change", (event) => {
         void selectAsset(event.target.value);
     });
-    const dialog = el("logout-dialog");
-    el("logout-btn").addEventListener("click", () => dialog.showModal());
     el("logout-cancel").addEventListener("click", () => dialog.close());
     el("logout-confirm").addEventListener("click", () => {
         dialog.close();

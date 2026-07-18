@@ -491,8 +491,9 @@ dialog.confirm::backdrop { background: rgba(0, 0, 0, 0.6); }
 
 .stat-row {
     grid-column: 1 / -1;
+    order: 0;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 20px;
 }
 
@@ -515,8 +516,21 @@ dialog.confirm::backdrop { background: rgba(0, 0, 0, 0.6); }
 
 .overview-row {
     grid-column: 1 / -1;
+    order: 2;
     display: grid;
     grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+/* Watchlist + alerts always sit above the chart (order 1, below only the stat
+   row at order 0): members act on their own data first, and guests meet the
+   locked panels as a sign-up prompt before the chart. */
+.personal-row {
+    grid-column: 1 / -1;
+    order: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 20px;
     align-items: start;
 }
@@ -565,17 +579,158 @@ dialog.confirm::backdrop { background: rgba(0, 0, 0, 0.6); }
 .auth-guest__divider::before { left: 0; }
 .auth-guest__divider::after { right: 0; }
 
-/* ---------- Nav CTA ---------- */
-
-#nav-signup { min-height: 40px; padding: 0 14px; }
-
 /* ---------- Dashboard responsive additions ---------- */
 
 @media (max-width: 900px) {
-    .stat-row { grid-template-columns: repeat(2, 1fr); }
     .overview-row { grid-template-columns: 1fr; }
+    .personal-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
     .stat-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- Assets panel: filter + sort ---------- */
+
+.panel__head--assets { flex-wrap: wrap; align-items: center; }
+
+.segmented {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+.segmented__btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 7px;
+    transition: color 200ms, background-color 200ms;
+}
+.segmented__btn:hover { color: var(--text); }
+.segmented__btn[aria-selected="true"] {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow);
+}
+
+.assets-sort {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+.assets-sort__hint {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 2px;
+}
+.sort-btn {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--font-data);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 10px;
+    border-radius: 999px;
+    transition: color 200ms, border-color 200ms, background-color 200ms;
+}
+.sort-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.sort-btn[data-active="true"] {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* Keep the assets list a fixed height and scroll it internally, so a long list
+   (all coins + stocks) doesn't push the rest of the page down. padding-right
+   keeps the scrollbar off the rows. */
+.panel--assets .asset-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+}
+.panel--assets .asset-list::-webkit-scrollbar { width: 8px; }
+.panel--assets .asset-list::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+}
+.panel--assets .asset-list::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Account menu ---------- */
+
+.menu { position: relative; }
+
+.avatar#account-trigger {
+    cursor: pointer;
+    transition: border-color 200ms, background-color 200ms;
+}
+.avatar#account-trigger:hover { border-color: var(--accent); }
+
+.menu__panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: var(--z-nav);
+    min-width: 220px;
+    padding: 6px;
+    display: grid;
+    gap: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.menu__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    transition: background-color 160ms, color 160ms;
+}
+.menu__item svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
+.menu__item:hover:not(:disabled) { background: var(--surface-2); }
+.menu__item span:first-of-type { flex: 1; }
+
+.menu__item--accent { color: var(--accent); }
+.menu__item--accent svg { color: var(--accent); }
+.menu__item--danger:hover:not(:disabled) { color: var(--loss); }
+.menu__item--danger:hover:not(:disabled) svg { color: var(--loss); }
+
+.menu__item--soon { cursor: not-allowed; color: var(--muted); }
+.menu__soon {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 6px;
+}
+
+.menu__sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+@media (max-width: 560px) {
+    .assets-sort { flex-wrap: wrap; }
 }

@@ -7,7 +7,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-const BASE_URL = "http://localhost:8000";
+// Same-origin by default: the FastAPI backend serves this frontend, so relative
+// paths ("/assets/…") hit the API directly and work in local dev and a bundled
+// deploy alike. For a split deploy (frontend on a different host than the API),
+// set window.__API_BASE__ = "https://your-api.example.com" before this loads.
+const BASE_URL = (typeof window !== "undefined" && window.__API_BASE__) || "";
 let authToken = null;
 let guest = false;
 export class ApiError extends Error {

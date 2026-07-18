@@ -1,13 +1,8 @@
 import httpx
-import os
-from dotenv import load_dotenv
+import yfinance as yf
 from models import Asset, PriceHistory
 from database import SessionLocal
 from services.alert_checker import check_alerts
-
-load_dotenv()
-
-ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
 
 def fetch_crypto_prices(db):
@@ -37,35 +32,54 @@ def fetch_crypto_prices(db):
     print("Crypto prices fetched and stored.")
 
 
+def _stock_quote(ticker):
+    info = ticker.fast_info
+    price = info.last_price
+    if price is None:
+        return None
+
+    volume = getattr(info, "last_volume", None)
+    market_cap = getattr(info, "market_cap", None)
+    return (
+        float(price),
+        float(volume) if volume else None,
+        float(market_cap) if market_cap else None,
+    )
+
+
 def fetch_stock_prices(db):
     stock_assets = db.query(Asset).filter(Asset.asset_type == "stock").all()
-    
+    if not stock_assets:
+        return
+
+    # yfinance has no daily request cap (unlike the old Alpha Vantage free tier),
+    # so we can quote every seeded stock on each run. One symbol failing to
+    # resolve must not sink the rest, so each is fetched under its own try.
+    tickers = yf.Tickers(" ".join(asset.symbol for asset in stock_assets))
+
     for asset in stock_assets:
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={asset.symbol}&apikey={ALPHA_VANTAGE_KEY}"
-        
-        response = httpx.get(url)
-        data = response.json()
-        
-        quote = data.get("Global Quote", {})
-        price_str = quote.get("05. price")
-        
-        if not price_str:
+        try:
+            quote = _stock_quote(tickers.tickers[asset.symbol])
+        except Exception as error:
+            print(f"Stock fetch failed for {asset.symbol}: {error}")
             continue
-        
-        price = PriceHistory(
+
+        if quote is None:
+            continue
+
+        price_usd, volume_24h, market_cap = quote
+        db.add(PriceHistory(
             asset_id=asset.id,
-            price_usd=float(price_str),
-            volume_24h=float(quote.get("06. volume", 0)), 
-            market_cap=None,
-        )
-        db.add(price)
-    
+            price_usd=price_usd,
+            volume_24h=volume_24h,
+            market_cap=market_cap,
+        ))
+
     db.commit()
     print("Stock prices fetched and stored.")
 
 
 def fetch_crypto_prices_job():
-    """CoinGecko batches every coin into one request, so this can run often."""
     db = SessionLocal()
     try:
         fetch_crypto_prices(db)
@@ -75,8 +89,6 @@ def fetch_crypto_prices_job():
 
 
 def fetch_stock_prices_job():
-    """Alpha Vantage costs one request per symbol against a small daily quota,
-    so this runs far less often than the crypto job. See TODO.md."""
     db = SessionLocal()
     try:
         fetch_stock_prices(db)
