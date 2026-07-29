@@ -1,8 +1,9 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Asset, PriceHistory
+from services.signals import compute_signals
 
 router = APIRouter()
 @router.get("/")
@@ -52,6 +53,34 @@ def get_asset_summary(db: Session = Depends(get_db)):
             "fetched_at": latest.fetched_at,
         })
     return result
+
+@router.get("/signals")
+def get_all_signals(db: Session = Depends(get_db)):
+    """Return trading signals for all assets."""
+    assets = db.query(Asset).order_by(Asset.id).all()
+    result = []
+    for asset in assets:
+        signals = compute_signals(asset.id, db)
+        result.append({
+            "symbol": asset.symbol,
+            "name": asset.name,
+            "asset_type": asset.asset_type,
+            **(signals if signals else {"signal": None, "reason": "insufficient_data"}),
+        })
+    return result
+
+
+@router.get("/{symbol}/signals")
+def get_signals(symbol: str, db: Session = Depends(get_db)):
+    """Return trading signals for a specific asset."""
+    asset = db.query(Asset).filter(Asset.symbol == symbol.upper()).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    signals = compute_signals(asset.id, db)
+    if signals is None:
+        return {"symbol": asset.symbol, "signal": None, "reason": "insufficient_data"}
+    return {"symbol": asset.symbol, "name": asset.name, **signals}
+
 
 @router.get("/{symbol}/prices")
 def get_prices(symbol: str, limit: int = 48, db: Session = Depends(get_db)):

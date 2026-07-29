@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Asset, Alert, User
@@ -37,11 +37,16 @@ def get_alerts(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
 @router.post("/")
 def create_alert(symbol: str, condition: str, target_price: float, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if condition not in ("above", "below"):
+        raise HTTPException(status_code=400, detail="condition must be 'above' or 'below'")
+    if target_price <= 0:
+        raise HTTPException(status_code=400, detail="target_price must be positive")
+
     asset = db.query(Asset).filter(Asset.symbol == symbol.upper()).first()
-    
+
     if not asset:
         return {"error": "Asset not found"}
-    
+
     alert = Alert(
         asset_id=asset.id,
         user_id=current_user.id,
